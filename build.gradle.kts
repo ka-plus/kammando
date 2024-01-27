@@ -11,6 +11,7 @@ retroProject {
     libDirs = arrayOf(".ra/deps/c64lib", "build/charpad", "build/spritepad", "build/goattracker")
     libFromGitHub("c64lib/common", "0.5.0")
     libFromGitHub("c64lib/chipset", "0.5.0")
+    libFromGitHub("c64lib/copper64", "0.5.0")
 }
 
 license {
