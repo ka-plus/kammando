@@ -10,6 +10,8 @@
 .file [name="./demo.prg", segments="Code", modify="BasicUpstart", _start=$0810]
 .segment Code
 
+.var music = LoadSid("Commando.sid")
+
 .label CHARSET_MEM      = $C000
 .label SCREEN_0_MEM     = $C800
 .label SCREEN_1_MEM     = $CC00
@@ -46,6 +48,11 @@ continue:
     c64lib_pushParamW(CHARSET_MEM)
     c64lib_pushParamW(levelChasetEnd-levelCharset)
     jsr copy
+    // copy music
+    c64lib_pushParamW(musicData)
+    c64lib_pushParamW(music.location)
+    c64lib_pushParamW(music.size)
+    jsr copy
     // set initial memory
     lda #%00100000
     sta c64lib.MEMORY_CONTROL
@@ -64,6 +71,11 @@ continue:
     jsr displayMap
     jsr displayMap
 
+    lda #0
+    ldx #0
+    ldy #0
+    jsr music.init
+
     lda #<copperList
     sta $3
     lda #>copperList
@@ -73,6 +85,8 @@ continue:
 loop: jmp loop
 
 runEachFrame: {
+    jsr music.play
+
     lda posY
     beq end
 
@@ -198,7 +212,7 @@ setColorRam: {
 // vars
 page:       .byte 0
 posY:       .byte 176
-scrollY:    .byte %111
+scrollY:    .byte 7
 
 levelData:
     .import binary "playfield-map.bin"
@@ -207,3 +221,6 @@ levelDataOffsets: .lohifill 200, levelData + 40*i
 levelCharset:
     .import binary "playfield-charset.bin"
 levelChasetEnd:
+musicData:
+    .fill music.size, music.getData(i)
+musicDataEnd:
