@@ -42,10 +42,43 @@
 .label CHARSET_MEM      = $C000
 .label SCREEN_0_MEM     = $C800
 .label SCREEN_1_MEM     = $CC00
+.label START_Y = 176
+.label START_MAP_POSITION = START_Y * 40 + levelData
+
+// shift content of the screen by one row downwards
+.macro shiftScreen(from, to) {
+    .for (var i = 24; i > 0; i--) {
+            ldx #40
+        loop:
+            lda from + 40*(i - 1) - 1, x
+            sta to + 40*i - 1, x
+            dex
+            bne loop
+    }
+    rts
+}
+
+// displays next row of the map at the top of the screen
+.macro displayRow(to) {
+        ldy posY
+        lda levelDataOffsets.lo, y
+        sta address
+        lda levelDataOffsets.hi, y
+        sta address+1
+        ldx #0
+    loop:
+        lda address:$ffff, x
+        sta to, x
+        inx
+        cpx #40
+        bne loop
+        rts
+}
 
 start:
     jmp continue
 copperList:
+    // raster IRQ table, uses Copper64, see: https://c64lib.github.io/#_copper_64
     c64lib_copperEntry(c64lib.IRQH_JSR, 100, <runEachFrame, >runEachFrame)
     c64lib_copperLoop()
 continue:
@@ -54,7 +87,7 @@ continue:
     c64lib_disableCIAInterrupts()
     c64lib_configureMemory(c64lib.RAM_IO_RAM)
     cli
-    // set up vic colours
+    // set up VIC colours
     lda #BLACK
     sta c64lib.BORDER_COL
     lda #backgroundColour0
@@ -80,43 +113,46 @@ continue:
     c64lib_pushParamW(music.location)
     c64lib_pushParamW(music.size)
     jsr copy
-    // set initial memory
+    // display map
+    c64lib_pushParamW(START_MAP_POSITION)
+    c64lib_pushParamW(SCREEN_0_MEM)
+    c64lib_pushParamW(40*24)
+    jsr copy
+
+    // set initial memory configuration for VIC-2
     lda #%00100000
     sta c64lib.MEMORY_CONTROL
 
+    // fill up colour RAM with GREEN colour
     lda #(8 + GREEN)
     jsr setColorRam
 
-    lda #<SCREEN_0_MEM
-    sta displayMap.dstAddress
-    lda #>SCREEN_0_MEM
-    sta displayMap.dstAddress+1
-
-    ldy posY
-    jsr displayMap
-    jsr displayMap
-    jsr displayMap
-    jsr displayMap
-
+    // initialize music player
     lda #0
     ldx #0
     ldy #0
     jsr music.init
 
+    // start Copper 64 (handling raster IRQs)
     lda #<copperList
     sta $3
     lda #>copperList
     sta $4
     jsr startCopper
 
+// infinite loop at the end of the program, nothing more do be done here, all is done in raster IRQ
 loop: jmp loop
 
+// this code is called once per frame, it is triggered by raster IRQ
 runEachFrame: {
+    // run music player
     jsr music.play
-
+   
+    // check if we need to scroll the screen
     lda posY
     beq end
 
+    // scroll the screen, calculate scroll Y register value
     inc scrollY
     lda scrollY
     and #%00000111
@@ -126,12 +162,14 @@ runEachFrame: {
     ora scrollY
     sta c64lib.CONTROL_1
     lda scrollY
+    // check if we need to switch the screen
     cmp #7
     bne end
 
     lda page
     bne p1to0
 p0to1:
+    // switch the screen from page 0 to page 1
     jsr shift0to1
     jsr displayRow1
     lda c64lib.MEMORY_CONTROL
@@ -143,6 +181,7 @@ p0to1:
     dec posY
     jmp end
 p1to0:
+    // switch the screen from page 1 to page 0
     jsr shift1to0
     jsr displayRow0
     lda c64lib.MEMORY_CONTROL
@@ -165,64 +204,6 @@ displayRow0: displayRow(SCREEN_0_MEM)
 displayRow1: displayRow(SCREEN_1_MEM)
 startCopper: c64lib_startCopper($3, $5, List().add(c64lib.IRQH_JSR).lock())
 
-.macro shiftScreen(from, to) {
-    .for (var i = 24; i > 0; i--) {
-            ldx #40
-        loop:
-            lda from + 40*(i - 1) - 1, x
-            sta to + 40*i - 1, x
-            dex
-            bne loop
-    }
-    rts
-}
-
-.macro displayRow(to) {
-        ldy posY
-        lda levelDataOffsets.lo, y
-        sta address
-        lda levelDataOffsets.hi, y
-        sta address+1
-        ldx #0
-    loop:
-        lda address:$ffff, x
-        sta to, x
-        inx
-        cpx #40
-        bne loop
-        rts
-}
-
-displayMap: {
-        lda levelDataOffsets.lo, y
-        sta srcAddress
-        lda levelDataOffsets.hi, y
-        sta srcAddress+1
-        ldx #0
-    colLoop:
-        lda srcAddress:$ffff, x
-        sta dstAddress:$ffff, x
-        inx
-        cpx #240
-        bne colLoop
-
-        clc
-        lda dstAddress
-        adc #240
-        sta dstAddress
-        lda dstAddress+1
-        adc #0
-        sta dstAddress+1
-        
-        iny
-        iny
-        iny
-        iny
-        iny
-        iny
-    rts
-}
-
 setColorRam: {
     ldx #0
     !:
@@ -238,7 +219,7 @@ setColorRam: {
 
 // vars
 page:       .byte 0
-posY:       .byte 176
+posY:       .byte START_Y
 scrollY:    .byte 7
 
 levelData:
